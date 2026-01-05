@@ -9,8 +9,6 @@ namespace LowoUN.Util {
         private float _currentFPS = 0f;
         public int CurrentFPS => Mathf.CeilToInt (_currentFPS);
 
-        // private float currentFPS = 0f;
-
         void Update () {
             UpdateFPS ();
         }
@@ -28,7 +26,6 @@ namespace LowoUN.Util {
 
 #if UNITY_EDITOR
         void OnGUI () {
-            // currentFPS = _currentFPS;
             DisplayFPS ();
         }
         private void DisplayFPS () {
