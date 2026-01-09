@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace LowoUN.Util {
+namespace LowoUN.Module.Perf {
     public class Debug_FPS : MonoBehaviour {
         // 帧率计算参数
         [SerializeField] float _updateInterval = 1f; // 更新间隔（秒）
