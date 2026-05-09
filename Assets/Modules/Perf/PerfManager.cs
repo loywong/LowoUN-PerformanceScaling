@@ -4,6 +4,7 @@ using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 
 namespace LowoUN.Module.Perf {
+
     // 性能分为三档
     public enum PerfLevelType : byte {
         NONE = 0,
@@ -11,11 +12,23 @@ namespace LowoUN.Module.Perf {
         Mid = 2,
         High = 3,
     }
+
     public class PerfManager : SingletonSimple<PerfManager> {
+        private UniversalRenderPipelineAsset selectedPipeline;
+
         // ------ 设备信息
         // [Header ("内存阈值配置")] "触发降级的内存阈值 GB")]
+        #if UNITY_IOS
+        readonly float memoryThresholdGB_1 = 3.0f;
+        #else
         readonly float memoryThresholdGB_1 = 4.0f;
+        #endif
+        #if UNITY_IOS
+        readonly float memoryThresholdGB_2 = 5.4f;
+        #else
         readonly float memoryThresholdGB_2 = 6.0f;
+        #endif
+
         // 设备内存状态缓存
         private float _deviceMemoryGB;
         public float DeviceMemoryGB => _deviceMemoryGB;
@@ -29,66 +42,99 @@ namespace LowoUN.Module.Perf {
 
         private string graphicsDeviceName;
         public string GraphicsDeviceName => graphicsDeviceName;
-
-#if !SRV_ALIYUN_PRODUCTION
-        public string perfLevDesc { private set; get; }
-#endif
-
-        // ------ 配置
-        // readonly float renderScale = 1.0f;
-        // readonly float renderScale_mid = 0.8f;
-        // readonly float renderScale_low = 0.6f;
+        
+        #if !SRV_ALIYUN_PRODUCTION
+        public string perfLevDesc{private set;get;}
+        #endif
 
         PerfLevelType curPerfLevelType;
         public PerfLevelType CurPerfLevelType => curPerfLevelType;
+        bool isIPhone = false;
+        public void Init_DebugMode () {
+            isIPhone = false; 
 
-        public Debug_FPS Comp_FPS;
-        public void Init (Debug_FPS comp) {
+            if (GameSettings._instance.ForceQualityLevel == PerfLevelType.NONE) {
+                #if UNITY_EDITOR
+                this.curPerfLevelType = PerfLevelType.High;
+                #else
+                GetDeviceInfo();
+                UpdatePerfLevel ();
+                #endif
+            }
+            else
+                this.curPerfLevelType = GameSettings._instance.ForceQualityLevel;
+                
+            Init2();
+        }
+
+        void CheckIsIphone () {
+            #if UNITY_IOS && !UNITY_EDITOR
+            isIPhone = true;
+            #else
+            isIPhone = false;
+            #endif
+            Debug.Log($"[Perf] Init -- isIPhone:{isIPhone}");
+            // TEST
+            // var cpuSocre = CalculatePerformanceScore_IPhone("apple a14");
+            // Debug.LogError($"cpuSocre:{cpuSocre}");
+            // return;
+        }
+        public void Init (PerfLevelType cachePerfLevType) {
+            CheckIsIphone();
+
+            Debug.Log($"[Perf] Init -- cachePerfLevType:{cachePerfLevType}");
+            this.curPerfLevelType = cachePerfLevType;
+
+            Init2();
+        }
+
+        void Init2 () {
+            Debug.Log ($"[perf] curPerfLevelType:{this.curPerfLevelType}, QualitySettings.GetQualityLevel() = {QualitySettings.GetQualityLevel()}");
+
+            #if !SRV_ALIYUN_PRODUCTION
+            perfLevDesc = $"Mem:{PerfManager.Self.DeviceMemoryGB}[{memLev}], CPU:{PerfManager.Self.CpuProcessorType}_{cpuProcessorCount}_{cpuProcessorFrequency}-{cpuPerformanceScore}[{cpuLev}], GPU:{PerfManager.Self.GraphicsDeviceName}-{gpuPerformanceScore}[{gpuLev}]";
+            Debug.Log("[Perf] "+perfLevDesc);
+            #endif
+
+            AdjustPerformance (this.curPerfLevelType);
+
+            // 3 Others
+            // UpdateCameraData();
+
+            Init_default_renderScale();
+
+            Init_MaxScreenParticle();
+
+            // 是否动态渲染帧
+            // // 禁用Ondemand Rendering
+            // OnDemandRendering.renderFrameInterval = 1; // 设置为1表示每帧都渲染
+            // // OnDemandRendering.enabled = false; // 完全禁用动态渲染
+            // // 通过VSync控制帧率
+            // QualitySettings.vSyncCount = 1; // 每垂直同步渲染一帧，会影响输入
+
             // 启用后台运行
             Application.runInBackground = true;
             // 可选：验证设置是否生效
-            Debug.Log ("RunInBackground is set to: " + Application.runInBackground);
+            Debug.Log("[Perf] RunInBackground is set to: " + Application.runInBackground);
+        }
 
-#if UNITY_EDITOR
-            Debug.Log ($"QualitySettings.GetQualityLevel() = {QualitySettings.GetQualityLevel()}");
-#endif
+        // 缓存当前值
+        private int _currentMaxScreenParticle;
+        // 公开属性
+        public int MaxScreenParticle => _currentMaxScreenParticle;
+        public void Init_MaxScreenParticle () {
+            _currentMaxScreenParticle = curPerfLevelType switch {
+                PerfLevelType.High => PerfSettings.MaxScreenParticle_High,
+                PerfLevelType.Mid => PerfSettings.MaxScreenParticle_Middle,
+                PerfLevelType.Low => PerfSettings.MaxScreenParticle_Low,
+                _ => PerfSettings.MaxScreenParticle_Low  // 默认值
+            };
+            // Debug.LogError($"Init_MaxScreenParticle -- 222 _currentMaxScreenParticle:{_currentMaxScreenParticle}");
+        }
 
-            Comp_FPS = comp;
-
-            // 1 TODO 优化功耗
-            // OnDemandRendering.renderFrameInterval = 1; // 设置为1表示每帧都渲染（默认）
-
-            // 2 (仅移动平台生效)
-            if (Application.isMobilePlatform) {
-                // Screen.sleepTimeout = SleepTimeout.NeverSleep;
-
-                if (GameSettings._instance.ForceQualityLevel != PerfLevelType.NONE) {
-                    curPerfLevelType = GameSettings._instance.ForceQualityLevel;
-                } else {
-                    GetDeviceInfo ();
-                    UpdatePerfLevel ();
-                }
-
-            } else {
-                if (GameSettings._instance.ForceQualityLevel != PerfLevelType.NONE) {
-                    curPerfLevelType = GameSettings._instance.ForceQualityLevel;
-
-                    AdjustPerformance ();
-                } else {
-                    GetDeviceInfo ();
-
-                    UpdatePerfLevel ();
-                    // curPerfLevelType = PerfLevelType.High;
-                    // Application.targetFrameRate = 60;
-                }
-            }
-
-#if !SRV_ALIYUN_PRODUCTION
-            perfLevDesc = $"Mem:{PerfManager.Self.DeviceMemoryGB}[{memLev}], CPU:{PerfManager.Self.CpuProcessorType}_{cpuProcessorCount}_{cpuProcessorFrequency}-{cpuPerformanceScore}[{cpuLev}], GPU:{PerfManager.Self.GraphicsDeviceName}-{gpuPerformanceScore}[{gpuLev}]";
-            Debug.Log (perfLevDesc);
-#endif
-
-            AdjustPerformance ();
+        public void SetMaxScreenParticle(int value)
+        {
+            _currentMaxScreenParticle = value;
         }
 
         void GetDeviceInfo () {
@@ -102,21 +148,39 @@ namespace LowoUN.Module.Perf {
             graphicsDeviceName = SystemInfo.graphicsDeviceName;
         }
 
-        void AdjustPerformance () {
-            UniversalRenderPipelineAsset selectedPipeline = null;
+        // 通过设置面板进入游戏时，直接使用缓存的性能档位，无需重新检测设备信息和性能档位
+        public PerfLevelType GetPerfLevel_FirstLaunchApp()
+        {
+            CheckIsIphone();
 
-            // Common
+            GetDeviceInfo();
+            memLev = UpdatePerfLevel_Mem();
+            gpuLev = UpdatePerfLevel_GPU();
+            cpuLev = UpdatePerfLevel_CPU();
+
+            var levelType = PerfLevelType.High;
+            if(memLev < levelType)
+                levelType = memLev;
+            if(cpuLev < levelType)
+                levelType = cpuLev;
+            if(gpuLev < levelType)
+                levelType = gpuLev;
+
+            Debug.Log($"[Perf] UpdatePerfLevel:{levelType} --> memLev:{memLev},cpuLev:{cpuLev},gpuLev:{gpuLev}");
+            return levelType;
+        }
+        void AdjustPerformance (PerfLevelType levelType) {
             QualitySettings.vSyncCount = 0;
 
-            switch (curPerfLevelType) {
+            switch (levelType) {
                 case PerfLevelType.Low: // 低档
-                    Application.targetFrameRate = 60; //30;
-                    Screen.sleepTimeout = SleepTimeout.NeverSleep; //SystemSetting;
+                    Application.targetFrameRate = 60;//30;
+                    Screen.sleepTimeout = SleepTimeout.NeverSleep;//SystemSetting;
                     selectedPipeline = GameSettings._instance.LowQualityPipeline;
                     break;
                 case PerfLevelType.Mid: // 中档 - 设置为45帧(如果手机没有45帧，会退到30帧???)
                     Application.targetFrameRate = 60;
-                    Screen.sleepTimeout = SleepTimeout.NeverSleep; //SystemSetting;
+                    Screen.sleepTimeout = SleepTimeout.NeverSleep;//SystemSetting;
                     selectedPipeline = GameSettings._instance.MediumQualityPipeline;
                     break;
                 case PerfLevelType.High: // 高档
@@ -126,34 +190,40 @@ namespace LowoUN.Module.Perf {
                     break;
             }
 
+            // 获取URP管线配置
+            // _urpAsset = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
+            // Set_RenderScale ();
             // 这是切换渲染管线的核心语句
-            if (selectedPipeline != null)
+            if (selectedPipeline != null) {
                 GraphicsSettings.renderPipelineAsset = selectedPipeline;
+                // 如果切换后需要强制刷新所有渲染器，可以取消下一行的注释
+                // UniversalRenderPipeline.ReloadAllRenderers();
+            }
 
             // 同时调整其他画质设置
             Set_Quality ();
         }
 
-        public PerfLevelType memLev { private set; get; }
-        public PerfLevelType cpuLev { private set; get; }
-        public PerfLevelType gpuLev { private set; get; }
+        public PerfLevelType memLev{private set;get;}
+        public PerfLevelType cpuLev{private set;get;}
+        public PerfLevelType gpuLev{private set;get;}
         void UpdatePerfLevel () {
-            memLev = UpdatePerfLevel_Mem ();
-            cpuLev = UpdatePerfLevel_CPU ();
-            gpuLev = UpdatePerfLevel_GPU ();
-            Debug.Log ($"UpdatePerfLevel --> memLev:{memLev},cpuLev:{cpuLev},gpuLev:{gpuLev}");
+            memLev = UpdatePerfLevel_Mem();
+            gpuLev = UpdatePerfLevel_GPU();
+            cpuLev = UpdatePerfLevel_CPU();
+            Debug.Log($"[Perf] UpdatePerfLevel --> memLev:{memLev},cpuLev:{cpuLev},gpuLev:{gpuLev}");
 
             curPerfLevelType = PerfLevelType.High;
-            if (memLev < curPerfLevelType)
+            if(memLev < curPerfLevelType)
                 curPerfLevelType = memLev;
-            if (cpuLev < curPerfLevelType)
+            if(cpuLev < curPerfLevelType)
                 curPerfLevelType = cpuLev;
-            if (gpuLev < curPerfLevelType)
+            if(gpuLev < curPerfLevelType)
                 curPerfLevelType = gpuLev;
         }
         PerfLevelType UpdatePerfLevel_Mem () {
-            Debug.Log ($"UpdatePerfLevel_Mem --> _deviceMemoryGB:{_deviceMemoryGB}");
-
+            Debug.Log($"[Perf] UpdatePerfLevel_Mem --> _deviceMemoryGB:{_deviceMemoryGB}");
+            
             if (_deviceMemoryGB <= memoryThresholdGB_1)
                 return PerfLevelType.Low;
             else if (_deviceMemoryGB > memoryThresholdGB_1 && _deviceMemoryGB <= memoryThresholdGB_2)
@@ -164,39 +234,136 @@ namespace LowoUN.Module.Perf {
             return PerfLevelType.Low;
         }
         PerfLevelType UpdatePerfLevel_CPU () {
-            var t = DeterminePerformanceTier (
+            var t = DeterminePerformanceTier(
                 cpuProcessorCount,
                 cpuProcessorFrequency
             );
 
             return t;
         }
-
+        
         public float cpuPerformanceScore;
-        PerfLevelType DeterminePerformanceTier (int coreCount, int frequencyMHz) {
+        PerfLevelType DeterminePerformanceTier(int coreCount, int frequencyMHz)
+        {
             float frequencyGHz = frequencyMHz / 1000f;
+            // // TEST
+            // cpuPerformanceScore = CalculatePerformanceScore_IPhone(gpuName);
+            // Debug.LogError($"cpuPerformanceScore:{cpuPerformanceScore}");
 
-            // 基于市场数据分析的权重算法
-            cpuPerformanceScore = CalculatePerformanceScore (coreCount, frequencyGHz);
-            Debug.Log ($"UpdatePerfLevel_CPU --> Score:{cpuPerformanceScore} -- {PerfManager.Self.CpuProcessorType}, coreCount:{coreCount}, frequencyGHz:{frequencyGHz}");
+            if (isIPhone) {
+                // cpuPerformanceScore = CalculatePerformanceScore_IPhone2(coreCount, frequencyGHz, cpuProcessorType);
+                cpuPerformanceScore = CalculatePerformanceScore_IPhone(gpuName);
+                Debug.Log($"[Perf] UpdatePerfLevel_CPU [iPhone] --> Score:{cpuPerformanceScore} -- {PerfManager.Self.CpuProcessorType}, coreCount:{coreCount}, frequencyGHz:{frequencyGHz}");
+                return DeterminePerformanceTierByCpuScore_Iphone(cpuPerformanceScore);
+            }
 
-            if (cpuPerformanceScore >= 9.5f) // default suggestion value 8
+            cpuPerformanceScore = CalculatePerformanceScore(coreCount, frequencyGHz);
+            Debug.Log($"[Perf] UpdatePerfLevel_CPU --> Score:{cpuPerformanceScore} -- {PerfManager.Self.CpuProcessorType}, coreCount:{coreCount}, frequencyGHz:{frequencyGHz}");
+
+            return DeterminePerformanceTierByCpuScore(cpuPerformanceScore);
+        }
+
+        float CalculatePerformanceScore(int coreCount, float frequencyGHz)
+        {
+            // 性能评分算法：核心数和频率的加权计算
+            // 权重基于市场数据分析（核心数权重0.6，频率权重0.4）
+            float coreScore = Mathf.Clamp(coreCount / 8f, 0f, 1f) * 10f;
+            // 高档	3.8 GHz - 4.74 GHz 中档	2.8 GHz - 3.5 GHz 低档	2.0 GHz - 2.7 GHz(小于2.8GHz)
+            float freqScore = Mathf.Clamp(frequencyGHz / 3.8f, 0f, 1f) * 10f;
+            
+            // 可能适用于移动平台，PC平台核心数权重应该更高
+            return (coreScore * 0.6f) + (freqScore * 0.4f);
+        }
+
+        float CalculatePerformanceScore_IPhone(string gpuName) {
+            Debug.LogError($"[Perf] CalculatePerformanceScore_IPhone gpuName:{gpuName}");
+            // TEST
+            // string lowerName = "apple a14";
+
+            string lowerName = gpuName?.ToLower() ?? string.Empty;
+            // #if UNITY_EDITOR
+            // return 10f;
+            // #endif
+
+            if (lowerName.Contains("apple m"))
+                return 10f;
+            
+            if (lowerName.Contains("apple a")) {
+                Debug.Log($"[Perf] CalculatePerformanceScore_IPhone 1");
+
+                int version = ExtractNumber(lowerName);
+                Debug.Log($"[Perf] CalculatePerformanceScore_IPhone 2 ExtractNumber version:{version}");
+            
+                if (version >= 14) return 10f;   // A14 及以上（含 A14, A15, A16, A17, A18...）
+                if (version >= 10) return 8.2f;  // A10 - A13
+                if (version >= 7)  return 7.5f;  // A7 - A9
+                if (version >= 4)  return 6.5f;  // A4 - A6
+                return 6f;                       // A3 及以下
+            }
+
+            return 6f;
+        }
+        // float CalculatePerformanceScore_IPhone2(int coreCount, float frequencyGHz, string processorType)
+        // {
+        //     var lowerCpu = processorType?.ToLower() ?? string.Empty;
+            
+        //     // 对于 arm64e 架构的 iPhone（可能不带 Apple SoC 标识的系统）
+        //     // 根据核心数和频率综合评估
+        //     if (lowerCpu.Contains("arm64e"))
+        //     {
+        //         // iPhone 12-15 通常 6 核 + 3.0-3.2GHz -> 中高端（A14/A15/A16/A17）
+        //         // iPhone 11 通常 6 核 + 2.65-2.9GHz -> 中端（A13）
+        //         // iPhone XS/XR 通常 6 核 + 2.4-2.5GHz -> 中端（A12）
+        //         // iPhone 8-X 通常 6 核 + 2.3-2.4GHz -> 低中端（A11/A10）
+                
+        //         if (coreCount >= 6 && frequencyGHz >= 3.0f)
+        //             return 10f;  // A14 及更新
+        //         else if (coreCount >= 6 && frequencyGHz >= 2.65f && frequencyGHz < 3.0f)
+        //             return 8.2f;  // A13
+        //         else if (coreCount >= 6 && frequencyGHz >= 2.35f && frequencyGHz < 2.65f)
+        //             return 7.5f;  // A12/A11
+        //         else if (coreCount >= 4 && frequencyGHz >= 2.0f)
+        //             return 6.5f;  // A10/A9 及更旧
+        //     }
+
+        //     // 如果能识别到具体的 Apple SoC 名称，直接返回对应分数
+        //     if (lowerCpu.Contains("apple m"))
+        //         return 10f;
+
+        //     if(lowerCpu.Contains("apple a")) {
+        //         if (lowerCpu.Contains("apple a17") || lowerCpu.Contains("apple a16") || lowerCpu.Contains("apple a15") || lowerCpu.Contains("apple a14"))
+        //             return 10f;
+
+        //         if (lowerCpu.Contains("apple a13") || lowerCpu.Contains("apple a12") || lowerCpu.Contains("apple a11") || lowerCpu.Contains("apple a10"))
+        //             return 8.2f;
+
+        //         if (lowerCpu.Contains("apple a9") || lowerCpu.Contains("apple a8") || lowerCpu.Contains("apple a7"))
+        //             return 6.5f;
+        //     }
+
+        //     // 其他未知 iPhone 机型，使用默认 CPU 核心/频率计算，并降低阈值
+        //     float baseScore = CalculatePerformanceScore(coreCount, frequencyGHz);
+        //     return Mathf.Clamp(baseScore * 0.95f, 4f, 10f);
+        // }
+
+        PerfLevelType DeterminePerformanceTierByCpuScore_Iphone(float score)
+        {
+            Debug.Log("[Perf] DeterminePerformanceTierByCpuScore_Iphone");
+            if (score >= 9f)
                 return PerfLevelType.High;
-            else if (cpuPerformanceScore >= 9f) // default suggestion value 4.5
+            else if (score >= 7f)
                 return PerfLevelType.Mid;
             else
                 return PerfLevelType.Low;
         }
-
-        float CalculatePerformanceScore (int coreCount, float frequencyGHz) {
-            // 性能评分算法：核心数和频率的加权计算
-            // 权重基于市场数据分析（核心数权重0.6，频率权重0.4）
-            float coreScore = Mathf.Clamp (coreCount / 8f, 0f, 1f) * 10f;
-            // 高档	3.8 GHz - 4.74 GHz 中档	2.8 GHz - 3.5 GHz 低档	2.0 GHz - 2.7 GHz(小于2.8GHz)
-            float freqScore = Mathf.Clamp (frequencyGHz / 3.8f, 0f, 1f) * 10f;
-
-            // 可能适用于移动平台，PC平台核心数权重应该更高
-            return (coreScore * 0.6f) + (freqScore * 0.4f);
+        PerfLevelType DeterminePerformanceTierByCpuScore(float score)
+        {
+            if (score >= 9.5f)
+                return PerfLevelType.High;
+            else if (score >= 9f)
+                return PerfLevelType.Mid;
+            else
+                return PerfLevelType.Low;
         }
 
         public string gpuName;
@@ -218,24 +385,36 @@ namespace LowoUN.Module.Perf {
             hasComputeShaders = SystemInfo.supportsComputeShaders;
             maxTextureSize = SystemInfo.maxTextureSize;
             graphicsShaderLevel = SystemInfo.graphicsShaderLevel;
-
+            
             // 纹理压缩格式支持检测
-            astcSupport = SystemInfo.SupportsTextureFormat (TextureFormat.ASTC_6x6);
-            etc2Support = SystemInfo.SupportsTextureFormat (TextureFormat.ETC2_RGBA8);
-            pvrtcSupport = SystemInfo.SupportsTextureFormat (TextureFormat.PVRTC_RGBA4);
+            astcSupport = SystemInfo.SupportsTextureFormat(TextureFormat.ASTC_6x6);
+            etc2Support = SystemInfo.SupportsTextureFormat(TextureFormat.ETC2_RGBA8);
+            pvrtcSupport = SystemInfo.SupportsTextureFormat(TextureFormat.PVRTC_RGBA4);
 
             // 计算性能评分并确定档位
-            gpuPerformanceScore = CalculateGPUScore ();
-            Debug.Log ($"UpdatePerfLevel_GPU --> Score:{gpuPerformanceScore} -- gpuName:{gpuName},gpuMemoryMB:{gpuMemoryMB},hasTessellation:{hasTessellation},hasGeometryShaders:{hasGeometryShaders},maxTextureSize:{maxTextureSize},graphicsShaderLevel:{graphicsShaderLevel},astcSupport:{astcSupport},etc2Support:{etc2Support},pvrtcSupport:{pvrtcSupport}");
-            PerfLevelType t = DetermineGPUTier (gpuPerformanceScore);
+            gpuPerformanceScore = CalculateGPUScore();
+            Debug.Log($"[Perf] UpdatePerfLevel_GPU --> Score:{gpuPerformanceScore} -- gpuName:{gpuName},gpuMemoryMB:{gpuMemoryMB},hasTessellation:{hasTessellation},hasGeometryShaders:{hasGeometryShaders},maxTextureSize:{maxTextureSize},graphicsShaderLevel:{graphicsShaderLevel},astcSupport:{astcSupport},etc2Support:{etc2Support},pvrtcSupport:{pvrtcSupport}");
+            PerfLevelType t = DetermineGPUTier(gpuPerformanceScore);
 
             return t;
         }
 
-        PerfLevelType DetermineGPUTier (float performanceScore) {
-            if (performanceScore >= 96) //35f
+        PerfLevelType DetermineGPUTier(float performanceScore)
+        {
+            // bool isIPhone = Application.platform == RuntimePlatform.IPhonePlayer;
+            if (isIPhone)
+            {
+                if (performanceScore >= 90f)
+                    return PerfLevelType.High;
+                else if (performanceScore >= 72f)
+                    return PerfLevelType.Mid;
+                else
+                    return PerfLevelType.Low;
+            }
+
+            if (performanceScore >= 96)
                 return PerfLevelType.High;
-            else if (performanceScore >= 80f) //20f
+            else if (performanceScore >= 80f)
                 return PerfLevelType.Mid;
             else
                 return PerfLevelType.Low;
@@ -243,14 +422,19 @@ namespace LowoUN.Module.Perf {
             // 以 adreno (tm) 7/6/5 三代gpu为例 分别 得分是 100 / 84 / 72
         }
 
-        float CalculateGPUScore () {
+        float CalculateGPUScore()
+        {
+            // bool isIPhone = Application.platform == RuntimePlatform.IPhonePlayer;
+            if (isIPhone)
+                return CalculateGPUScore_IPhone();
+
             float score = 0f;
 
             // 显存评分 (权重: 20%)
-            score += Mathf.Clamp (gpuMemoryMB / 2048f, 0f, 1f) * 25f;
+            score += Mathf.Clamp(gpuMemoryMB / 2048f, 0f, 1f) * 25f;
 
             // Shader Level评分 (权重: 20%)
-            score += Mathf.Clamp ((graphicsShaderLevel - 20) / 50f, 0f, 1f) * 20f;
+            score += Mathf.Clamp((graphicsShaderLevel - 20) / 50f, 0f, 1f) * 20f;
 
             // 特性支持评分 (权重: 5%)
             float featureScore = 0f;
@@ -261,45 +445,98 @@ namespace LowoUN.Module.Perf {
             score += featureScore * 10f;
 
             // 纹理大小评分 (权重: 5%)
-            score += Mathf.Clamp (maxTextureSize / 8192f, 0f, 1f) * 15f;
+            score += Mathf.Clamp(maxTextureSize / 8192f, 0f, 1f) * 15f;
 
             // GPU型号识别加分 (权重: 50%)
-            score += GetGPUModelBonus () * 40f;
-            // score += 0.6f * 40f;
+            score += GetGPUModelBonus(gpuName) * 40f;
 
             return score;
         }
 
-        private float GetGPUModelBonus () {
-            string lowerName = gpuName.ToLower ();
-            // Debug.LogError($"GetGPUModelBonus lowerName:{lowerName}");
+        float CalculateGPUScore_IPhone()
+        {
+            Debug.Log("[Perf] CalculateGPUScore_IPhone");
 
-            // 高端GPU型号识别
-#if UNITY_EDITOR
-            // pc平台 
-            // if (lowerName.Contains("nvidia geforce") || lowerName.Contains("amd radeon"))// rtx 3060 ti)
+            float score = 0f;
+
+            // iPhone 上显存不会太大，因此以 2GB 为参考基准
+            score += Mathf.Clamp(gpuMemoryMB / 2048f, 0f, 1f) * 20f;
+
+            // Shader Level 仍有参考价值，但不应过度依赖
+            score += Mathf.Clamp((graphicsShaderLevel - 20) / 40f, 0f, 1f) * 15f;
+
+            float featureScore = 0f;
+            if (hasTessellation) featureScore += 0.25f;
+            if (hasGeometryShaders) featureScore += 0.2f;
+            if (hasComputeShaders) featureScore += 0.25f;
+            if (astcSupport) featureScore += 0.3f;
+            score += featureScore * 10f;
+
+            score += Mathf.Clamp(maxTextureSize / 8192f, 0f, 1f) * 15f;
+
+            score += GetGPUModelBonus_Iphone(gpuName) * 40f;
+
+            return score;
+        }
+
+        private float GetGPUModelBonus_Iphone(string gpuName)
+        {
+            string lowerName = gpuName?.ToLower() ?? string.Empty;
+            #if UNITY_EDITOR
             return 1.0f;
-#endif
+            #else
 
-            // mobile平台
-            // TEST
-            // if (lowerName.Contains("adreno (tm) 9") || lowerName.Contains("adreno (tm) 8") || lowerName.Contains("adreno (tm) 7")
-            if (lowerName.Contains ("adreno (tm) 9") || lowerName.Contains ("adreno (tm) 8") || lowerName.Contains ("adreno (tm) 750") || lowerName.Contains ("adreno (tm) 740") ||
-                lowerName.Contains ("mali-g7") || lowerName.Contains ("mali-g8") ||
-                lowerName.Contains ("apple a1") || lowerName.Contains ("apple a2"))
+            if (lowerName.Contains("apple m"))
+                return 1.0f;
+            
+            if (lowerName.Contains("apple a")) {
+                // if (lowerName.Contains("apple a17") || lowerName.Contains("apple a16") || lowerName.Contains("apple a15") || lowerName.Contains("apple a14"))
+                //     return 1.0f;
+
+                // if (lowerName.Contains("apple a13") || lowerName.Contains("apple a12") || lowerName.Contains("apple a11") || lowerName.Contains("apple a10"))
+                //     return 0.75f;
+
+                // if (lowerName.Contains("apple a9") || lowerName.Contains("apple a8") || lowerName.Contains("apple a7"))
+                //     return 0.55f;
+
+                int version = ExtractNumber(lowerName);
+                Debug.Log($"[Perf] GetGPUModelBonus_Iphone version:{version}");
+            
+                if (version >= 14) return 1.0f;   // A14 及以上（含 A14, A15, A16, A17, A18...）
+                if (version >= 10) return 0.75f;  // A10 - A13
+                if (version >= 7)  return 0.55f;  // A7 - A9
+                if (version >= 4)  return 0.35f;  // A4 - A6
+                return 0.3f;                       // A3 及以下
+            }
+
+            return 0.3f;
+            #endif
+        }
+
+        // 提取 "apple a14" 中的数字 14
+        private int ExtractNumber(string input) {
+            var match = System.Text.RegularExpressions.Regex.Match(input, @"apple a(\d+)");
+            if (match.Success && int.TryParse(match.Groups[1].Value, out int num))
+                return num;
+            return 0;
+        }
+
+        private float GetGPUModelBonus(string gpuName)
+        {
+            string lowerName = gpuName?.ToLower() ?? string.Empty;
+            #if UNITY_EDITOR
+            return 1.0f;
+            #else
+
+            if (lowerName.Contains("adreno (tm) 9") || lowerName.Contains("adreno (tm) 8") || lowerName.Contains("adreno (tm) 750") || lowerName.Contains("adreno (tm) 740") ||
+                lowerName.Contains("mali-g7") || lowerName.Contains("mali-g8"))
                 return 1.0f;
 
-            // 中端GPU型号识别
-            if (lowerName.Contains ("adreno (tm) 730") ||
-                lowerName.Contains ("adreno (tm) 6") || //lowerName.Contains("adreno (tm) 5") || //lowerName.Contains("adreno 4") ||
-                lowerName.Contains ("mali-t8") ||
-                lowerName.Contains ("powervr g") || lowerName.Contains ("apple a9") ||
-                lowerName.Contains ("apple a10"))
+            if (lowerName.Contains("adreno (tm) 730") || lowerName.Contains("adreno (tm) 6") || lowerName.Contains("mali-t8") || lowerName.Contains("powervr g") || lowerName.Contains("apple a9") || lowerName.Contains("apple a10"))
                 return 0.6f;
 
-            // 低端GPU型号识别
-            //lowerName.Contains("mali-g5") || 红米note10 典型的低端机
             return 0.3f;
+            #endif
         }
 
         void Set_Quality () {
@@ -318,72 +555,76 @@ namespace LowoUN.Module.Perf {
             QualitySettings.SetQualityLevel (qLevel, true);
         }
 
-        GameObject curr_sceneVolume;
-        public void Set_PostProcessing () {
-            if (!GameSettings._instance.IsEnableVolume)
-                return;
-            if (curPerfLevelType < PerfLevelType.High) {
-                SetBattlePostProcessDisable ();
-                return;
-            }
+        #if UNITY_ANDROID && !UNITY_EDITOR
+        readonly float default_renderScale_high = PerfSettings.default_renderScale_Android_high;
+        readonly float default_renderScale_mid = PerfSettings.default_renderScale_Android_mid;
+        readonly float default_renderScale_low = PerfSettings.default_renderScale_Android_low;
+        #elif UNITY_IOS && !UNITY_EDITOR
+        readonly float default_renderScale_high = PerfSettings.default_renderScale_iOS_high;
+        readonly float default_renderScale_mid = PerfSettings.default_renderScale_iOS_mid;
+        readonly float default_renderScale_low = PerfSettings.default_renderScale_iOS_low;
+        #else
+        readonly float default_renderScale_high = PerfSettings.default_renderScale_high;
+        readonly float default_renderScale_mid = PerfSettings.default_renderScale_mid;
+        readonly float default_renderScale_low = PerfSettings.default_renderScale_low;
+        #endif
 
-            var res = Resources.Load<GameObject> ("TestGlobalVolume");
-            // ResUtils.LoadAsync<GameObject> ("TestGlobalVolume", (res) => {
-            curr_sceneVolume = UnityEngine.Object.Instantiate (res);
-            curr_sceneVolume.SetActive (!GameSettings.IsHideOrShowPostProcess);
-            // });
-        }
-
-        public void SetBattlePostProcessDisable () {
-            if (curr_sceneVolume != null) {
-                // curr_sceneVolume.SetActive(false);
-                GameObject.Destroy (curr_sceneVolume);
-            }
-            curr_sceneVolume = null;
-        }
-
-        public void TEST_Toggle_PostProcess () {
-            if (curr_sceneVolume != null) {
-                GameSettings.IsHideOrShowPostProcess = !GameSettings.IsHideOrShowPostProcess;
-                curr_sceneVolume.gameObject.SetActive (!GameSettings.IsHideOrShowPostProcess);
-            } else {
-                Debug.Log ($"curPerfLevelType:{curPerfLevelType}, has no post processing");
-            }
-        }
-
-        // 中高性能模式下，开启camera自身的后处理 和 FXAA 抗锯齿，低端机则关闭所有
-        public void Check_SetManiCameraPostProcessAndFXAA () {
-            if (curPerfLevelType is PerfLevelType.High or PerfLevelType.Mid)
-                SetManiCameraPostProcessAndFXAA (true);
-            else
-                SetManiCameraPostProcessAndFXAA (false);
-        }
-        // 也可以在某些特殊场景 强制开启或关闭
-        public void SetManiCameraPostProcessAndFXAA (bool isOpen) {
-            var cam = Camera.main;
-
-            if (cam == null) {
-                Debug.LogWarning ($"SetManiCameraPostProcessAndFXAA main camera is null"); //, Game State:{GameController.Self.CurState}
+        void Init_default_renderScale() {
+            if (selectedPipeline == null) {
+                Debug.LogError ("[Perf] URP asset not found!");
                 return;
             }
 
-            UniversalAdditionalCameraData cameraData = cam.GetComponent<UniversalAdditionalCameraData> ();
-            if (cameraData == null) {
-                Debug.LogWarning ("SetManiCameraPostProcessAndFXAA cameraData is null");
+            Set_RenderScale_Init();
+        }
+        public void Set_RenderScale_Battle_In () {
+            // LLog.Error("Set_RenderScale_Battle_In");
+            if(curPerfLevelType == PerfLevelType.High)
+                Set_RenderScale(default_renderScale_high-0.05f);
+            if(curPerfLevelType == PerfLevelType.Mid)
+                Set_RenderScale(default_renderScale_mid-0.1f);
+            if(curPerfLevelType == PerfLevelType.Low)
+                Set_RenderScale(default_renderScale_low-0.05f);
+        }
+        public void Set_RenderScale_Init () {
+            // LLog.Error("Set_RenderScale_Battle_Out");
+            if(curPerfLevelType == PerfLevelType.High)
+                Set_RenderScale(default_renderScale_high);
+            if(curPerfLevelType == PerfLevelType.Mid)
+                Set_RenderScale(default_renderScale_mid);
+            if(curPerfLevelType == PerfLevelType.Low)
+                Set_RenderScale(default_renderScale_low);
+        }
+        public void Set_RenderScale_Battle_Out () {
+            Set_RenderScale_Init();
+        }
+        void Set_RenderScale (float targetScale) {
+            if (selectedPipeline == null) {
+                Debug.LogWarning ("[Perf] URP asset not found!");
                 return;
             }
-
-            cameraData.renderPostProcessing = isOpen;
-            if (isOpen)
-                cameraData.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing; //FastApproximateAntialiasing
-            else
-                cameraData.antialiasing = AntialiasingMode.None;
+            Debug.Log ($"Set_RenderScale:{targetScale}");
+            selectedPipeline.renderScale = targetScale;
         }
+
+        // UniversalAdditionalCameraData _cameraData;
+        // void UpdateCameraData() {
+        //     _cameraData = Camera.main.GetComponent<UniversalAdditionalCameraData>();
+        //     _cameraData.enabled = false;
+        //     _cameraData.renderPostProcessing = level > 0;
+        //     _cameraData.renderShadows = level > 0;
+        // }
 
         // 处理特效的高中低分档，场景预置 + 战斗即时动态生成
         // Awake时处理
         // 一旦找到目标对象，无需要递归遍历所有层级的子对象
         // -- 目前的规则是 1 场景预置的 在第一子级 2 动态生成的在 Con的第一子级
+        public void SetVFXLevel_BattleFieldLayout (Transform vfxContainer) {
+            if (curPerfLevelType >= PerfLevelType.High)
+                return;
+
+            SetVFXLevel (vfxContainer);
+        }
         public void SetVFXLevel_DynamicSpawn (Transform vfxContainer) {
             if (curPerfLevelType >= PerfLevelType.High)
                 return;
@@ -391,7 +632,6 @@ namespace LowoUN.Module.Perf {
             var con = vfxContainer.Find ("Con");
             if (con != null)
                 SetVFXLevel (con);
-            else SetVFXLevel (con);
         }
         void SetVFXLevel (Transform vfxContainer) {
             foreach (Transform child in vfxContainer) {
@@ -415,6 +655,82 @@ namespace LowoUN.Module.Perf {
 
                 // 是否递归
             }
+        }
+
+        GameObject curr_sceneVolume;
+        public void Set_PostProcessing_Battle () {
+            Debug.Log($"Set_PostProcessing_Battle curPerfLevelType:{curPerfLevelType}");
+            if (!GameSettings._instance.IsEnableBattleVolume)
+                return;
+
+            if (curPerfLevelType >= PerfLevelType.High) {
+                if(curr_sceneVolume == null) {
+                    var res = Resources.Load<GameObject> ("TestGlobalVolume");
+                    curr_sceneVolume = UnityEngine.Object.Instantiate (res);
+                    curr_sceneVolume.SetActive (!GameSettings.IsHideOrShowPostProcess);
+                }
+                return;
+            }
+
+            Disable_PostProcess_Battle ();
+        }
+
+        public void Disable_PostProcess_Battle () {
+            if (!GameSettings._instance.IsEnableBattleVolume)
+                return;
+
+            if (curr_sceneVolume != null) {
+                // curr_sceneVolume.SetActive(false);
+                GameObject.Destroy (curr_sceneVolume);
+            }
+            curr_sceneVolume = null;
+        }
+
+        public void TEST_Toggle_PostProcess () {
+            Debug.Log($"[Perf] curPerfLevelType:{curPerfLevelType}");
+            if(curPerfLevelType < PerfLevelType.High) {
+                Debug.LogError($"[Perf] TEST_Toggle_PostProcess no post process for low/mid perf level");
+                return;
+            }
+
+            if (curr_sceneVolume != null) {
+                GameSettings.IsHideOrShowPostProcess = !GameSettings.IsHideOrShowPostProcess;
+                curr_sceneVolume.gameObject.SetActive (!GameSettings.IsHideOrShowPostProcess);
+            } else {
+                Debug.LogError ($"[Perf] no post processing asset had been loaded yet!");
+            }
+        }
+
+        // 中高性能模式下，开启camera自身的后处理 和 FXAA 抗锯齿，低端机则关闭所有
+        public void Check_SetManiCameraPostProcessAndFXAA() {
+            if(curPerfLevelType is PerfLevelType.High or PerfLevelType.Mid)
+                SetManiCameraPostProcessAndFXAA(true);
+            else {
+                if(GameSettings._instance.IsForceOpenAAOnLowQL)
+                    SetManiCameraPostProcessAndFXAA(true);
+                else
+                    SetManiCameraPostProcessAndFXAA(false);
+            }
+        }
+        public void SetManiCameraPostProcessAndFXAA (bool isOpen) {
+            var cam = Camera.main;
+
+            if(cam==null){
+                Debug.LogWarning($"[Perf] SetManiCameraPostProcessAndFXAA main camera is null");
+                return;
+            }
+
+            UniversalAdditionalCameraData cameraData = cam.GetComponent<UniversalAdditionalCameraData>();
+            if(cameraData == null) {
+                Debug.LogWarning("[Perf] SetManiCameraPostProcessAndFXAA cameraData is null");
+                return;
+            }
+
+            cameraData.renderPostProcessing = isOpen;
+            if(isOpen)
+                cameraData.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing; //FastApproximateAntialiasing
+            else
+                cameraData.antialiasing = AntialiasingMode.None;
         }
     }
 }

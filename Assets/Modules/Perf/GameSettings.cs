@@ -14,12 +14,16 @@ namespace LowoUN.Module.Perf {
         UniversalRenderPipelineAsset lowQualityPipeline;
         public UniversalRenderPipelineAsset LowQualityPipeline => lowQualityPipeline;
 
+        // [LabelText("使用设置面板的画质")] 
+        public bool isQualityLevel_SettingPanel = true;
         // [LabelText("移动设备强制画质水平")] 
         public PerfLevelType ForceQualityLevel = PerfLevelType.NONE;
         // [LabelText("允许后效(高性能设备)")] 
-        public bool IsEnableVolume = true;
+        public bool IsEnableBattleVolume = true;
         // [LabelText("测试关/开后效")] 
         public bool isHideOrShowPostProcess;
+        // [LabelText("强制开启抗锯齿(最低档画质)")] 
+        public bool IsForceOpenAAOnLowQL = false;
 
         // [LabelText("显示环境信息")] 
         public bool isShowEnvInfo;

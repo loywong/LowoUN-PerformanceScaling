@@ -17,12 +17,21 @@ public class Entry : MonoBehaviour {
     }
 
     IEnumerator Start () {
-        PerfManager.Self.Init (GetComponent<Debug_FPS> ());
+        #if !UNITY_EDITOR
+        GameSettings._instance.isQualityLevel_SettingPanel = true;
+        #endif
+        if(GameSettings._instance.isQualityLevel_SettingPanel) {
+            var cachedPerfLevelType = PerfLevelType.High;//SettingsController.Self.GetPerfLevelType();
+            PerfManager.Self.Init(cachedPerfLevelType);
+        }
+        else
+            PerfManager.Self.Init_DebugMode ();//GetComponent<Debug_FPS> ()
+
         DebugConsole.Self.Init ();
         yield return null;
 
         Camera.main.GetComponent<UniversalAdditionalCameraData> ().renderPostProcessing = true;
-        PerfManager.Self.Set_PostProcessing ();
+        PerfManager.Self.Set_PostProcessing_Battle();//Set_PostProcessing ();
 
         yield return null;
 
