@@ -1,6 +1,16 @@
 using UnityEngine;
 using UnityEngine.Rendering.Universal;
 
+// 性能分为三档
+public enum PerfLevelType : byte {
+    NONE = 0, 
+    // environmentally friendly 节能
+    Low = 1, // 流畅
+    Mid = 2, // 标准
+    High = 3, // 高清
+    Perfect = 4, // 极致
+}
+
 namespace LowoUN.Module.Perf {
     public class GameSettings : MonoBehaviour {
         public static GameSettings _instance;

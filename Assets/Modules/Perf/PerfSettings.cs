@@ -3,9 +3,9 @@ public static class PerfSettings {
     // 高中低档 ------------------------------------------------ begin
 
     // 最大同屏 particle数量
-    public const int MaxScreenParticle_High = 600;
-    public const int MaxScreenParticle_Middle = 400;
-    public const int MaxScreenParticle_Low = 200;
+    public const int MaxScreenParticle_High = 480;
+    public const int MaxScreenParticle_Middle = 300;
+    public const int MaxScreenParticle_Low = 180;
 
     // render scale
     public const float default_renderScale_Android_high= 0.9f;

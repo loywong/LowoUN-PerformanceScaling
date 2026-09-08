@@ -17,25 +17,24 @@ public class Entry : MonoBehaviour {
     }
 
     IEnumerator Start () {
-        #if !UNITY_EDITOR
+#if !UNITY_EDITOR
         GameSettings._instance.isQualityLevel_SettingPanel = true;
-        #endif
-        if(GameSettings._instance.isQualityLevel_SettingPanel) {
-            var cachedPerfLevelType = PerfLevelType.High;//SettingsController.Self.GetPerfLevelType();
-            PerfManager.Self.Init(cachedPerfLevelType);
-        }
-        else
-            PerfManager.Self.Init_DebugMode ();//GetComponent<Debug_FPS> ()
+#endif
+        if (GameSettings._instance.isQualityLevel_SettingPanel) {
+            var cachedPerfLevelType = PerfLevelType.High; //SettingsController.Self.GetPerfLevelType();
+            PerfManager.Self.Init (cachedPerfLevelType);
+        } else
+            PerfManager.Self.Init_DebugMode (); //GetComponent<Debug_FPS> ()
 
         DebugConsole.Self.Init ();
         yield return null;
 
         Camera.main.GetComponent<UniversalAdditionalCameraData> ().renderPostProcessing = true;
-        PerfManager.Self.Set_PostProcessing_Battle();//Set_PostProcessing ();
+        PerfLevelHandler.Self.Set_PostProcessing_Battle ();
 
         yield return null;
 
-        PerfManager.Self.Check_SetManiCameraPostProcessAndFXAA ();
+        // PerfManager.Self.Check_SetManiCameraPostProcessAndFXAA ();
 
         hasInit = true;
     }
@@ -45,7 +44,7 @@ public class Entry : MonoBehaviour {
 
         if (PerfManager.Self.CurPerfLevelType >= PerfLevelType.High) {
             if (GUI.Button (new Rect (10, alignY + 60, 200, 42), $"场景后效:{(GameSettings.IsHideOrShowPostProcess? "off" : "on")}")) {
-                PerfManager.Self.TEST_Toggle_PostProcess ();
+                PerfLevelHandler.Self.TEST_Toggle_PostProcess ();
             }
         }
     }
