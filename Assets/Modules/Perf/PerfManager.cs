@@ -194,7 +194,7 @@ namespace LowoUN.Module.Perf {
             // _urpAsset = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
             // Set_RenderScale ();
             // 这是切换渲染管线的核心语句
-            if (selectedPipeline != null) {
+            if (selectedPipeline != null && GraphicsSettings.currentRenderPipeline != selectedPipeline) {
                 GraphicsSettings.renderPipelineAsset = selectedPipeline;
                 // 如果切换后需要强制刷新所有渲染器，可以取消下一行的注释
                 // UniversalRenderPipeline.ReloadAllRenderers();
@@ -552,7 +552,8 @@ namespace LowoUN.Module.Perf {
                     qLevel = 5;
                     break;
             }
-            QualitySettings.SetQualityLevel (qLevel, true);
+            if (QualitySettings.GetQualityLevel () != qLevel)
+                QualitySettings.SetQualityLevel (qLevel, true);
         }
 
         #if UNITY_ANDROID && !UNITY_EDITOR
@@ -665,7 +666,13 @@ namespace LowoUN.Module.Perf {
 
             if (curPerfLevelType >= PerfLevelType.High) {
                 if(curr_sceneVolume == null) {
-                    var res = Resources.Load<GameObject> ("TestGlobalVolume");
+                    const string resourcePath = "GlobalVolume_HighQuality";
+                    var res = Resources.Load<GameObject> (resourcePath);
+                    if (res == null) {
+                        Debug.LogError ($"[Perf] Failed to load Resources/{resourcePath}.prefab");
+                        return;
+                    }
+
                     curr_sceneVolume = UnityEngine.Object.Instantiate (res);
                     curr_sceneVolume.SetActive (!GameSettings.IsHideOrShowPostProcess);
                 }
